@@ -8,7 +8,53 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/jinzhu/gorm"
 )
+
+func build(db *gorm.DB, c *Config, q *Query) (*gorm.DB, error) {
+	s, err := selectCols(c, q)
+	if err != nil {
+		return nil, err
+	}
+	if s != "" {
+		db = db.Select(s)
+	}
+	w, wa, err := where(c, q)
+	if err != nil {
+		return nil, err
+	}
+	if w != "" {
+		db = db.Where(w, wa...)
+	}
+	o, err := orderBy(c, q)
+	if err != nil {
+		return nil, err
+	}
+	if o != "" {
+		db = db.Order(o)
+	}
+	if q.Page <= 0 {
+		return nil, fmt.Errorf("invalid page: %d", q.Page)
+	}
+	pageSize := pageSize(c)
+	offset := uint64(pageSize) * uint64(q.Page-1)
+	if c.FilterFunc != nil {
+		db = c.FilterFunc(db, *q)
+	}
+	return db.Offset(offset).Limit(pageSize), nil
+}
+
+func pageSize(c *Config) uint16 {
+	pageSize := c.PageSize
+	if pageSize == 0 {
+		return defaultPageSize
+	}
+	if pageSize > maxPageSize {
+		return maxPageSize
+	}
+	return pageSize
+}
 
 // orderBy builds the ORDER BY clause.
 func orderBy(c *Config, q *Query) (string, error) {

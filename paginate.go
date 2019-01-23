@@ -11,23 +11,17 @@ import (
 // Config configures a search and pagination request.
 type Config struct {
 	// SelectableCols restricts which columns may be selected. An empty list means
-	// no restrictions. If SelectableCols contains the same column name as
-	// FilterCols, FilterCols wins.
+	// no restrictions.
 	SelectableCols []string
-
-	// FilterCols is a list of columns to suppress from the final output. An empty
-	// list means all columns will show in the output. If FilterCols contains the
-	// same column name as SelectableCols, FilterCols wins.
-	FilterCols []string
 
 	// FilterFunc pre-configures the query in a way that expands or restricts
 	// the query. It is applied *before* the final GORM query is built.
-	FilterFunc func(db *gorm.DB, query Query)
+	FilterFunc func(db *gorm.DB, query Query) *gorm.DB
 
 	// PageSize is the number of items to return per page. If zero,
 	// defaultPageSize will be used. The page size is futher constrained by
 	// maxPageSize.
-	PageSize int
+	PageSize uint16
 
 	// OrderableCols is a list of all columns that can be ordered by.
 	OrderableCols []string
@@ -55,7 +49,7 @@ type Query struct {
 
 	// Page is the page to return, assuming the configured page size.
 	// Pages start at 1.
-	Page int
+	Page uint32
 
 	// OrderBy describes the columns to order by and optionally the mode ("ASC"
 	// or "DESC"). If OrderBy is not whitelisted by Config.OrderableCols, an
@@ -63,8 +57,20 @@ type Query struct {
 	OrderBy []string
 }
 
+const (
+	defaultPageSize = 25
+	maxPageSize     = 1000
+)
+
 // Do performs the querying and pagination as described by Query, subject to
 // the constraints of Config. It populates the results in 'results'.
-func Do(c Config, q Query, results interface{}) error {
-	return nil
+// An error-less return does not mean the query succeeded, it only means the
+// query builder succeeded -- one must also check the Error field in gorm.DB.
+func Do(db *gorm.DB, c Config, q Query, results interface{}) (*gorm.DB, error) {
+	var err error
+	db, err = build(db, &c, &q)
+	if err != nil {
+		return nil, err
+	}
+	return db.Find(results), nil
 }

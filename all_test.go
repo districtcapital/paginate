@@ -4,12 +4,18 @@
 package paginate
 
 import (
+	"database/sql"
+	"io/ioutil"
+	"os"
 	"testing"
 
+	"github.com/jinzhu/gorm"
 	"github.com/stretchr/testify/assert"
+
+	_ "github.com/jinzhu/gorm/dialects/sqlite"
 )
 
-func TestOrderBy(t *testing.T) {
+func TestOrderByClause(t *testing.T) {
 	ob, err := orderBy(
 		&Config{
 			OrderableCols: []string{"id", "date"},
@@ -73,7 +79,7 @@ func TestOrderBy(t *testing.T) {
 	assert.Empty(t, ob)
 }
 
-func TestSelect(t *testing.T) {
+func TestSelectClause(t *testing.T) {
 	// Empty SelectableCols means "*"
 	s, err := selectCols(
 		&Config{},
@@ -122,7 +128,7 @@ func TestSelect(t *testing.T) {
 	assert.Equal(t, "", s)
 }
 
-func TestWhere(t *testing.T) {
+func TestWhereClause(t *testing.T) {
 	w, wa, err := where(&Config{
 		Where: map[string]string{"id": "> ?", "age": "< ?"},
 	},
@@ -134,6 +140,12 @@ func TestWhere(t *testing.T) {
 	assert.Equal(t, "age < ? AND id > ?", w)
 	assert.Equal(t, []interface{}{69, 32}, wa)
 
+	// No where clause is okay too.
+	w, wa, err = where(&Config{}, &Query{})
+	assert.NoError(t, err)
+	assert.Equal(t, "", w)
+	assert.Equal(t, []interface{}(nil), wa)
+
 	// Age is not allowed.
 	w, wa, err = where(&Config{
 		Where: map[string]string{"id": "> ?", "gender": "= ?"},
@@ -144,4 +156,454 @@ func TestWhere(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "", w)
 	assert.Equal(t, []interface{}(nil), wa)
+}
+
+/*
+c := Config{
+  PageSize: 3,
+  OrderableCols: []string{"id", "name", "age"},
+  Where: map[string]string{"id": "= ?", "name":"like %?%", "age": "> ?"}
+}
+q := Query{
+  Page: 1,
+  WhereArgs: map[string]interface{}{"age": 3},
+}
+
+*/
+
+func TestSimple(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize: 3,
+	}
+	q := Query{
+		Page: 1,
+	}
+
+	var results []dbModel
+	res, err := Do(db, c, q, &results)
+	assert.NoError(t, err)
+	assert.NoError(t, res.Error)
+	assert.Equal(t, int64(3), res.RowsAffected)
+	subSlice := testData[:3]
+	assert.Equal(t, subSlice, results)
+
+	q.Page = 2
+	res, err = Do(db, c, q, &results)
+	assert.NoError(t, err)
+	assert.NoError(t, res.Error)
+	assert.Equal(t, int64(3), res.RowsAffected)
+	subSlice = testData[3:6]
+	assert.Equal(t, subSlice, results)
+
+	q.Page = 3
+	res, err = Do(db, c, q, &results)
+	assert.NoError(t, err)
+	assert.NoError(t, res.Error)
+	assert.Equal(t, int64(1), res.RowsAffected)
+	subSlice = testData[6:7]
+	assert.Equal(t, subSlice, results)
+}
+
+func TestWhere(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize: 2,
+		Where:    map[string]string{"age": "> ?"},
+	}
+	q := Query{
+		Page:      1,
+		WhereArgs: map[string]interface{}{"age": "3"},
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+			{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+		},
+		{
+			{ID: 3, Name: "Test Dude", Age: 7, IQ: 200},
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+		},
+		{
+			{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+			{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+		},
+	})
+}
+
+func TestOrderBy(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize:      4,
+		OrderableCols: []string{"age", "iq"},
+	}
+	q := Query{
+		Page:    1,
+		OrderBy: []string{"age asc", " iq DESC "},
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 5, Name: "Blah", Age: 3, IQ: 100},
+			{ID: 3, Name: "Test Dude", Age: 7, IQ: 200},
+			{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+			{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+		},
+		{
+			{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+			{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+		},
+	})
+}
+
+func TestWhereAndOrderBy(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize:      2,
+		Where:         map[string]string{"age": "> ?"},
+		OrderableCols: []string{"iq"},
+	}
+	q := Query{
+		Page:      1,
+		WhereArgs: map[string]interface{}{"age": 15},
+		OrderBy:   []string{"iq desc"},
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+			{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+		},
+		{
+			{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+			{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+		},
+		{
+			{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+		},
+	})
+}
+
+func TestSmallPage(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize: 1,
+	}
+	q := Query{
+		Page: 1,
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+		},
+		{
+			{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+		},
+		{
+			{ID: 3, Name: "Test Dude", Age: 7, IQ: 200},
+		},
+		{
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+		},
+		{
+			{ID: 5, Name: "Blah", Age: 3, IQ: 100},
+		},
+		{
+			{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+		},
+		{
+			{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+		},
+	})
+}
+
+func TestBigPage(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize: 100,
+	}
+	q := Query{
+		Page: 1,
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+			{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+			{ID: 3, Name: "Test Dude", Age: 7, IQ: 200},
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+			{ID: 5, Name: "Blah", Age: 3, IQ: 100},
+			{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+			{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+		},
+	})
+}
+
+func TestNoResults(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize: 100,
+		Where:    map[string]string{"age": "> ?"},
+	}
+	q := Query{
+		Page:      1,
+		WhereArgs: map[string]interface{}{"age": 99},
+	}
+
+	testPagination(t, db, c, q, nil)
+}
+
+func TestDefaultPageSize(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{}
+	q := Query{
+		Page: 1,
+	}
+	testPagination(t, db, c, q, [][]dbModel{testData})
+}
+
+func TestHugePageSize(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize: 1<<16 - 1,
+	}
+	q := Query{
+		Page: 1,
+	}
+	testPagination(t, db, c, q, [][]dbModel{testData})
+}
+
+func TestSelect(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize:       10,
+		SelectableCols: []string{"age", "name"},
+	}
+	q := Query{
+		Page: 1,
+	}
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{Name: "Don Jr", Age: 46},
+			{Name: "Potranka", Age: 44},
+			{Name: "Test Dude", Age: 7},
+			{Name: "Meh", Age: 77},
+			{Name: "Blah", Age: 3},
+			{Name: "Holliams", Age: 99},
+			{Name: "Smart Guy", Age: 44},
+		},
+	})
+}
+
+func TestSelectWhereOrderBy(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		PageSize:       10,
+		SelectableCols: []string{"age", "name"},
+		Where:          map[string]string{"iq": "> ?"},
+		OrderableCols:  []string{"iq"},
+	}
+	q := Query{
+		Page:      1,
+		WhereArgs: map[string]interface{}{"iq": 80},
+		OrderBy:   []string{"iq asc"},
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{Name: "Blah", Age: 3},
+			{Name: "Meh", Age: 77},
+			{Name: "Test Dude", Age: 7},
+		},
+	})
+}
+
+func TestFilterFunc(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		FilterFunc: func(db *gorm.DB, query Query) *gorm.DB {
+			return db.Where("name NOT LIKE ?", "%dude%")
+		},
+	}
+	q := Query{
+		Page: 1,
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+			{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+			{ID: 5, Name: "Blah", Age: 3, IQ: 100},
+			{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+			{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+		},
+	})
+}
+
+func TestInvalidQueryPage(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{}
+	q := Query{
+		Page: 0,
+	}
+	var results []dbModel
+	_, err := Do(db, c, q, &results)
+	assert.Error(t, err)
+}
+
+func TestBadWhere(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{}
+	q := Query{
+		Page:      1,
+		WhereArgs: map[string]interface{}{"age": 7},
+	}
+	var results []dbModel
+	_, err := Do(db, c, q, &results)
+	assert.Error(t, err)
+}
+
+func TestBadSelect(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		SelectableCols: []string{"id"},
+	}
+	q := Query{
+		Page:   1,
+		Select: []string{"age"},
+	}
+	var results []dbModel
+	_, err := Do(db, c, q, &results)
+	assert.Error(t, err)
+}
+
+func TestBadOrderBy(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		OrderableCols: []string{"id"},
+	}
+	q := Query{
+		Page:    1,
+		OrderBy: []string{"age"},
+	}
+	var results []dbModel
+	_, err := Do(db, c, q, &results)
+	assert.Error(t, err)
+}
+
+func testPagination(t *testing.T, db *gorm.DB, c Config, q Query, resultsPerPage [][]dbModel) {
+	var results [][]dbModel
+
+	for {
+		var local []dbModel
+		res, err := Do(db, c, q, &local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Error != nil {
+			t.Fatal(res.Error)
+		}
+		if res.RowsAffected == 0 {
+			break
+		}
+		results = append(results, local)
+		q.Page++
+	}
+	assert.Equal(t, resultsPerPage, results)
+}
+
+type dbModel struct {
+	ID   int64
+	Name string
+	Age  int16
+	IQ   int32
+}
+
+var testData = []dbModel{
+	{ID: 1, Name: "Don Jr", Age: 46, IQ: 1},
+	{ID: 2, Name: "Potranka", Age: 44, IQ: 80},
+	{ID: 3, Name: "Test Dude", Age: 7, IQ: 200},
+	{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+	{ID: 5, Name: "Blah", Age: 3, IQ: 100},
+	{ID: 6, Name: "Holliams", Age: 99, IQ: 50},
+	{ID: 7, Name: "Smart Guy", Age: 44, IQ: 30},
+}
+
+func createDB() (*gorm.DB, func()) {
+	// Create temp storage for sqlite
+	tmpfile, err := ioutil.TempFile("", "page_test")
+	if err != nil {
+		panic(err)
+	}
+	dbName := tmpfile.Name()
+	if err = tmpfile.Close(); err != nil {
+		panic(err)
+	}
+
+	// side effect: db is now in model.M
+	db, err := sql.Open("sqlite3", dbName)
+	if err != nil {
+		panic(err)
+	}
+	gdb, err := gorm.Open("sqlite3", db)
+	if err != nil {
+		panic(err)
+	}
+	return gdb, func() { os.Remove(dbName) }
+}
+
+func setup(t *testing.T) (*gorm.DB, func()) {
+	defer func() {
+		if err := recover(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	gdb, f := createDB()
+	res := gdb.AutoMigrate(&dbModel{})
+	if err := res.Error; err != nil {
+		t.Fatal(err)
+	}
+	for i, d := range testData {
+		res = gdb.Create(&d)
+		if err := res.Error; err != nil {
+			t.Fatalf("error creating record %d:%s", i, err)
+		}
+	}
+	return gdb, f
 }
