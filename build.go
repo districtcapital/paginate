@@ -1,0 +1,121 @@
+// Copyright District Capital Inc 2019
+// All rights reserved.
+
+package paginate
+
+import (
+	"bytes"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// orderBy builds the ORDER BY clause.
+func orderBy(c *Config, q *Query) (string, error) {
+	var buf bytes.Buffer
+
+Outer:
+	for _, o := range q.OrderBy {
+		oo := strings.ToLower(strings.TrimSpace(o))
+		ob := strings.Split(oo, " ")
+		if len(ob[0]) == 0 {
+			// We got an empty order by. Nothing to do.
+			continue
+		}
+		if len(ob) > 2 {
+			return "", fmt.Errorf("invalid order_by clause %q", o)
+		}
+		if len(ob) == 2 {
+			if ob[1] != "asc" && ob[1] != "desc" {
+				return "", fmt.Errorf("invalid sort direction in order_by clause %q", o)
+			}
+		}
+		for _, oc := range c.OrderableCols {
+			if strings.EqualFold(ob[0], oc) {
+				pad(&buf, ", ")
+				buf.WriteString(oo)
+				continue Outer
+			}
+		}
+		return "", fmt.Errorf("query cannot order by field %q", o)
+	}
+	return buf.String(), nil
+}
+
+// selectCols builds the SELECT clause.
+func selectCols(c *Config, q *Query) (string, error) {
+	var buf bytes.Buffer
+
+	// No mention of a selectable column means all columns are allowed.
+	if len(c.SelectableCols) == 0 {
+		// If the query did not specify, select everything.
+		if len(q.Select) == 0 {
+			return "*", nil
+		}
+	}
+
+Outer:
+	for _, ss := range q.Select {
+		s := strings.ToLower(strings.TrimSpace(ss))
+		if len(s) == 0 {
+			// We got an empty select. Nothing to do.
+			continue
+		}
+		// If we don't restrict any columns, whatever comes can be added.
+		if len(c.SelectableCols) == 0 {
+			pad(&buf, ", ")
+			buf.WriteString(s)
+		} else {
+			for _, sc := range c.SelectableCols {
+				if strings.EqualFold(s, sc) {
+					pad(&buf, ", ")
+					buf.WriteString(s)
+					continue Outer
+				}
+			}
+			return "", fmt.Errorf("query cannot select column %q", s)
+		}
+	}
+	// If we did not select anything, then we select *everything* that *can* be
+	// selected (but for efficiency not "*").
+	if buf.Len() == 0 {
+		return strings.ToLower(strings.Join(c.SelectableCols, ", ")), nil
+	}
+	return buf.String(), nil
+}
+
+// where builds the WHERE clause.
+func where(c *Config, q *Query) (string, []interface{}, error) {
+	var buf bytes.Buffer
+	var args []interface{}
+
+	// Maps are unsorted so we sort the keys to ensure testable results.
+	keys := make([]string, 0, len(q.WhereArgs))
+	valuesWithNewKeys := make(map[string]interface{})
+	for k, v := range q.WhereArgs {
+		kk := strings.ToLower(strings.TrimSpace(k))
+		keys = append(keys, kk)
+		valuesWithNewKeys[kk] = v
+	}
+	sort.Strings(keys)
+
+	// We reject WhereArg keys that are not in Where keys.
+	for _, k := range keys {
+		if _, found := c.Where[k]; !found {
+			return "", nil, fmt.Errorf("where argument %q not allowed", k)
+		}
+		pad(&buf, " AND ")
+		buf.WriteString(k)
+		buf.WriteString(" ")
+		buf.WriteString(c.Where[k])
+		args = append(args, valuesWithNewKeys[k])
+	}
+	return buf.String(), args, nil
+}
+
+// pad adds s to buf if the buffer is not empty.
+func pad(buf *bytes.Buffer, s string) {
+	if buf.Len() > 0 {
+		buf.WriteString(s)
+	}
+}
