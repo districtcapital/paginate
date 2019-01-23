@@ -37,7 +37,7 @@ func build(db *gorm.DB, c *Config, q *Query) (*gorm.DB, error) {
 	if q.Page <= 0 {
 		return nil, fmt.Errorf("invalid page: %d", q.Page)
 	}
-	pageSize := pageSize(c)
+	pageSize := pageSize(c, q)
 	offset := uint64(pageSize) * uint64(q.Page-1)
 	if c.FilterFunc != nil {
 		db = c.FilterFunc(db, *q)
@@ -45,13 +45,19 @@ func build(db *gorm.DB, c *Config, q *Query) (*gorm.DB, error) {
 	return db.Offset(offset).Limit(pageSize), nil
 }
 
-func pageSize(c *Config) uint16 {
-	pageSize := c.PageSize
-	if pageSize == 0 {
-		return defaultPageSize
+func pageSize(c *Config, q *Query) uint16 {
+	if c.DefaultPageSize == 0 {
+		c.DefaultPageSize = defaultPageSize
 	}
-	if pageSize > maxPageSize {
-		return maxPageSize
+	if c.MaxPageSize == 0 {
+		c.MaxPageSize = maxPageSize
+	}
+	pageSize := q.PageSize
+	if pageSize == 0 {
+		return c.DefaultPageSize
+	}
+	if pageSize > c.MaxPageSize {
+		return c.MaxPageSize
 	}
 	return pageSize
 }

@@ -18,10 +18,14 @@ type Config struct {
 	// the query. It is applied *before* the final GORM query is built.
 	FilterFunc func(db *gorm.DB, query Query) *gorm.DB
 
-	// PageSize is the number of items to return per page. If zero,
-	// defaultPageSize will be used. The page size is futher constrained by
-	// maxPageSize.
-	PageSize uint16
+	// MaxPageSize is the maximum number of elements a query can request in one
+	// page. If MaxPageSize is not set, it defaults to maxPageSize.
+	MaxPageSize uint16
+
+	// DefaultPageSize is the default page size to use if the user does not
+	// request another page size. If DefaultPageSize is not set, a reasonable
+	// default (defaultPageSize) is used.
+	DefaultPageSize uint16
 
 	// OrderableCols is a list of all columns that can be ordered by.
 	OrderableCols []string
@@ -46,6 +50,11 @@ type Query struct {
 	// {"name": "Trump", "iq": 100} the final where clause would be
 	// WHERE name like %Trump% AND iq < 100
 	WhereArgs map[string]interface{}
+
+	// PageSize is the number of items to return per page. If zero,
+	// the Config's DefaultPageSize will be used. The page size is futher
+	// constrained by config.MaxPageSize.
+	PageSize uint16
 
 	// Page is the page to return, assuming the configured page size.
 	// Pages start at 1.

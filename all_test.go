@@ -158,25 +158,12 @@ func TestWhereClause(t *testing.T) {
 	assert.Equal(t, []interface{}(nil), wa)
 }
 
-/*
-c := Config{
-  PageSize: 3,
-  OrderableCols: []string{"id", "name", "age"},
-  Where: map[string]string{"id": "= ?", "name":"like %?%", "age": "> ?"}
-}
-q := Query{
-  Page: 1,
-  WhereArgs: map[string]interface{}{"age": 3},
-}
-
-*/
-
 func TestSimple(t *testing.T) {
 	db, f := setup(t)
 	defer f()
 
 	c := Config{
-		PageSize: 3,
+		DefaultPageSize: 3,
 	}
 	q := Query{
 		Page: 1,
@@ -212,8 +199,8 @@ func TestWhere(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize: 2,
-		Where:    map[string]string{"age": "> ?"},
+		DefaultPageSize: 2,
+		Where:           map[string]string{"age": "> ?"},
 	}
 	q := Query{
 		Page:      1,
@@ -241,12 +228,12 @@ func TestOrderBy(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize:      4,
 		OrderableCols: []string{"age", "iq"},
 	}
 	q := Query{
-		Page:    1,
-		OrderBy: []string{"age asc", " iq DESC "},
+		PageSize: 4,
+		Page:     1,
+		OrderBy:  []string{"age asc", " iq DESC "},
 	}
 
 	testPagination(t, db, c, q, [][]dbModel{
@@ -269,9 +256,9 @@ func TestWhereAndOrderBy(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize:      2,
-		Where:         map[string]string{"age": "> ?"},
-		OrderableCols: []string{"iq"},
+		DefaultPageSize: 2,
+		Where:           map[string]string{"age": "> ?"},
+		OrderableCols:   []string{"iq"},
 	}
 	q := Query{
 		Page:      1,
@@ -298,11 +285,10 @@ func TestSmallPage(t *testing.T) {
 	db, f := setup(t)
 	defer f()
 
-	c := Config{
-		PageSize: 1,
-	}
+	c := Config{}
 	q := Query{
-		Page: 1,
+		PageSize: 1,
+		Page:     1,
 	}
 
 	testPagination(t, db, c, q, [][]dbModel{
@@ -335,7 +321,7 @@ func TestBigPage(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize: 100,
+		DefaultPageSize: 100,
 	}
 	q := Query{
 		Page: 1,
@@ -359,10 +345,11 @@ func TestNoResults(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize: 100,
-		Where:    map[string]string{"age": "> ?"},
+		MaxPageSize: 100,
+		Where:       map[string]string{"age": "> ?"},
 	}
 	q := Query{
+		PageSize:  1000,
 		Page:      1,
 		WhereArgs: map[string]interface{}{"age": 99},
 	}
@@ -386,7 +373,8 @@ func TestHugePageSize(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize: 1<<16 - 1,
+		DefaultPageSize: 1<<16 - 1,
+		MaxPageSize:     1<<16 - 1,
 	}
 	q := Query{
 		Page: 1,
@@ -399,11 +387,11 @@ func TestSelect(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize:       10,
 		SelectableCols: []string{"age", "name"},
 	}
 	q := Query{
-		Page: 1,
+		PageSize: 10,
+		Page:     1,
 	}
 	testPagination(t, db, c, q, [][]dbModel{
 		{
@@ -423,10 +411,10 @@ func TestSelectWhereOrderBy(t *testing.T) {
 	defer f()
 
 	c := Config{
-		PageSize:       10,
-		SelectableCols: []string{"age", "name"},
-		Where:          map[string]string{"iq": "> ?"},
-		OrderableCols:  []string{"iq"},
+		DefaultPageSize: 10,
+		SelectableCols:  []string{"age", "name"},
+		Where:           map[string]string{"iq": "> ?"},
+		OrderableCols:   []string{"iq"},
 	}
 	q := Query{
 		Page:      1,
