@@ -41,6 +41,6 @@ Pull requests _must_ contain good, solid tests or they will be rejected.
 
 ## License
 
-This library is licensed under the MIT License. See file [LICENSE] for details.
+This library is licensed under the MIT License. See file [LICENSE](https://github.com/districtcapital/paginate/blob/master/LICENSE) for details.
 
 No part of this license grants anyone the right to use the name of District Capital Inc in any form, neither as endorsement or to promote any product or service.
