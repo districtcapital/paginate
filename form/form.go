@@ -67,6 +67,30 @@ func ToQuery(req interface{}, q *paginate.Query) {
 	}
 }
 
+// PatchLikeQuery changes the WhereArgs in the query if their matching
+// Where fields contain the SQL keyword "LIKE" (or "like") so that the arguments
+// are surrounded by "%". Matching fields are only changed if the WhereArgs are
+// strings. If no matching like fields are present, the query is unmodified.
+// It never changes config.
+func PatchLikeQuery(c *paginate.Config, q *paginate.Query) {
+	for k, v := range q.WhereArgs {
+		s, ok := v.(string)
+		if !ok {
+			// Not a string, skip.
+			continue
+		}
+		w, ok := c.Where[k]
+		if !ok {
+			// Config has no matching field (likely an error), skip.
+			continue
+		}
+		if !strings.Contains(s, "%") && strings.Contains(w, "like") || strings.Contains(w, "LIKE") {
+			s = "%" + s + "%"
+			q.WhereArgs[k] = s
+		}
+	}
+}
+
 func getUint64(v reflect.Value) uint64 {
 	switch v.Kind() {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:

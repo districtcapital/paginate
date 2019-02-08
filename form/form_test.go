@@ -92,6 +92,27 @@ func TestPopulateInvalid(t *testing.T) {
 	assert.Equal(t, &paginate.Query{}, q)
 }
 
+func TestPatchLikeQuery(t *testing.T) {
+	c := paginate.Config{
+		Where: map[string]string{"name": "like ?", "id": "= ?"},
+	}
+	q := paginate.Query{
+		WhereArgs: map[string]interface{}{"name": "bob", "id": 38, "bogus": "blah"},
+	}
+	PatchLikeQuery(&c, &q)
+	assert.Equal(t, 3, len(q.WhereArgs))          // No field was added or removed.
+	assert.Equal(t, "%bob%", q.WhereArgs["name"]) // Name was patched.
+	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
+	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+
+	// Calling it again does not add extra "%"s.
+	PatchLikeQuery(&c, &q)
+	assert.Equal(t, 3, len(q.WhereArgs))          // No field was added or removed.
+	assert.Equal(t, "%bob%", q.WhereArgs["name"]) // Name was patched.
+	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
+	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+}
+
 func TestSnakeCase(t *testing.T) {
 	assert.Equal(t, "", snakeCase(""))
 	assert.Equal(t, "id", snakeCase("ID"))
