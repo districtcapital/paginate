@@ -5,6 +5,8 @@
 package paginate
 
 import (
+	"strings"
+
 	"github.com/jinzhu/gorm"
 )
 
@@ -35,6 +37,10 @@ type Config struct {
 	// E.g. {"id": "> ?", "doc_age": "< ?"} would match with WhereArgs
 	// {"id": 32, "doc_age": 128} but not with {"user_id": 1, "age": 7}
 	Where map[string]string
+
+	// DisallowSearchTerm ignores the Search parameter in the Query. By default,
+	// search is allowed.
+	DisallowSearchTerm bool
 }
 
 // Query declares a query instance, used for querying a model subject to the
@@ -64,6 +70,16 @@ type Query struct {
 	// or "DESC"). If OrderBy is not whitelisted by Config.OrderableCols, an
 	// error is returned.
 	OrderBy []string
+
+	// Search is a string term that is applied to *all* Config.Where entries that
+	// contain a LIKE clause. If Search is present, all WhereArgs that map to a LIKE
+	// will have Search applied to them in an OR fashion. This means that a configuration
+	// such as
+	// Config{Where: {"first_name":"like ?", "last_name":"like ?"}} when matched with
+	// Query{Search:"august"}
+	// would emit "WHERE first_name LIKE august OR last_name LIKE august"
+	// See tests for examples.
+	Search string
 }
 
 const (
@@ -82,4 +98,46 @@ func Do(db *gorm.DB, c Config, q Query, results interface{}) (*gorm.DB, error) {
 		return nil, err
 	}
 	return db.Find(results), nil
+}
+
+// PatchLikeQuery changes the Query's Search and WhereArgs to have the literal
+// "%" prepended or appended in the following cases:
+// 1) If the Config's Where fields contain the SQL keyword "LIKE" (or "like")
+// then their matching WhereArgs will be changed to contain leading (prepend) or
+// trailing (append) "%" or both if they do not currently contain "%" anywhere
+// and they are string types.
+// 2) A Query's Search is modified if it's not empty and does not currently
+// contain "%".
+// If no matching fields are present, the query is unmodified. If both prepend
+// and append are false, nothing happens. PatchLikeQuery never changes Config.
+func PatchLikeQuery(c *Config, q *Query, prepend, append bool) {
+	for k, v := range q.WhereArgs {
+		s, ok := v.(string)
+		if !ok {
+			// Not a string, skip.
+			continue
+		}
+		w, ok := c.Where[k]
+		if !ok {
+			// Config has no matching field (likely an error), skip.
+			continue
+		}
+		if !strings.Contains(s, "%") && strings.Contains(w, "like") || strings.Contains(w, "LIKE") {
+			if prepend {
+				s = "%" + s
+			}
+			if append {
+				s = s + "%"
+			}
+			q.WhereArgs[k] = s
+		}
+	}
+	if q.Search != "" && !strings.Contains(q.Search, "%") {
+		if prepend {
+			q.Search = "%" + q.Search
+		}
+		if append {
+			q.Search = q.Search + "%"
+		}
+	}
 }

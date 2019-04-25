@@ -50,6 +50,7 @@ func TestPopulateAlternateForm(t *testing.T) {
 		Height   int8  `clause:"where"`
 		Select   []string
 		OrderBy  string
+		Search   string
 	}
 	i := uint(69)
 	r := &req{
@@ -60,6 +61,7 @@ func TestPopulateAlternateForm(t *testing.T) {
 		// Not including field 'Height' will also not include it in the final map.
 		Select:  []string{"one", "two", "three"},
 		OrderBy: "order-me",
+		Search:  "term",
 	}
 	q := &paginate.Query{}
 	ToQuery(r, q)
@@ -71,6 +73,7 @@ func TestPopulateAlternateForm(t *testing.T) {
 	}
 	assert.Equal(t, []string{"one", "two", "three"}, q.Select)
 	assert.Equal(t, []string{"order-me"}, q.OrderBy)
+	assert.Equal(t, "term", q.Search)
 }
 
 func TestPopulateInvalid(t *testing.T) {
@@ -79,12 +82,14 @@ func TestPopulateInvalid(t *testing.T) {
 		PageSize []byte
 		OrderBy  map[string]string
 		Selectme interface{} `clause:"select"`
+		Search   int
 	}
 	r := &req{
 		Page:     "10",
 		PageSize: []byte("32"),
 		OrderBy:  map[string]string{"age": "meh"},
 		Selectme: "foo",
+		Search:   32,
 	}
 	q := &paginate.Query{}
 	ToQuery(r, q)
@@ -98,12 +103,14 @@ func TestPatchLikeQuery(t *testing.T) {
 	}
 	q := paginate.Query{
 		WhereArgs: map[string]interface{}{"name": "bob", "id": 38, "bogus": "blah"},
+		Search:    "ello",
 	}
 	PatchLikeQuery(&c, &q)
 	assert.Equal(t, 3, len(q.WhereArgs))          // No field was added or removed.
 	assert.Equal(t, "%bob%", q.WhereArgs["name"]) // Name was patched.
 	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
 	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+	assert.Equal(t, "%ello%", q.Search)           // Search is always patched.
 
 	// Calling it again does not add extra "%"s.
 	PatchLikeQuery(&c, &q)
@@ -111,6 +118,7 @@ func TestPatchLikeQuery(t *testing.T) {
 	assert.Equal(t, "%bob%", q.WhereArgs["name"]) // Name was patched.
 	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
 	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+	assert.Equal(t, "%ello%", q.Search)           // Search is always patched.
 }
 
 func TestSnakeCase(t *testing.T) {

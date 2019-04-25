@@ -138,8 +138,12 @@ Outer:
 
 // where builds the WHERE clause.
 func where(c *Config, q *Query) (string, []interface{}, error) {
-	var buf bytes.Buffer
 	var args []interface{}
+
+	// Are we disallowing Search, but Search is requested?
+	if c.DisallowSearchTerm && q.Search != "" {
+		return "", nil, fmt.Errorf("search term is disallowed by config")
+	}
 
 	// Maps are unsorted so we sort the keys to ensure testable results.
 	keys := make([]string, 0, len(q.WhereArgs))
@@ -150,6 +154,8 @@ func where(c *Config, q *Query) (string, []interface{}, error) {
 		valuesWithNewKeys[kk] = v
 	}
 	sort.Strings(keys)
+
+	var buf bytes.Buffer
 
 	// We reject WhereArg keys that are not in Where keys.
 	for _, k := range keys {
@@ -162,7 +168,47 @@ func where(c *Config, q *Query) (string, []interface{}, error) {
 		buf.WriteString(c.Where[k])
 		args = append(args, valuesWithNewKeys[k])
 	}
+
+	// If there is no search term, we're done.
+	if q.Search == "" {
+		return buf.String(), args, nil
+	}
+
+	// When Search is on, we apply the Search to all LIKE queries.
+	keys = likeClauses(c)
+
+	var orBuf bytes.Buffer
+	for _, k := range keys {
+		pad(&orBuf, " OR ")
+		orBuf.WriteString(k)
+		orBuf.WriteString(" ")
+		orBuf.WriteString(c.Where[k])
+		args = append(args, q.Search)
+	}
+
+	and := buf.Len() > 0
+	or := orBuf.Len() > 0
+	if and && or {
+		buf.WriteString(" AND (")
+		buf.ReadFrom(&orBuf)
+		buf.WriteString(")")
+	} else if or {
+		buf.ReadFrom(&orBuf)
+	}
 	return buf.String(), args, nil
+}
+
+// likeClauses returns the sorted keys of all Where clauses that have a "LIKE"
+// or "like" in them.
+func likeClauses(c *Config) []string {
+	var keys []string
+	for k, v := range c.Where {
+		if strings.Contains(v, "like") || strings.Contains(v, "LIKE") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // pad adds s to buf if the buffer is not empty.

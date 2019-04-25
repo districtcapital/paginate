@@ -158,6 +158,55 @@ func TestWhereClause(t *testing.T) {
 	assert.Equal(t, []interface{}(nil), wa)
 }
 
+func TestWhereWithSearch(t *testing.T) {
+	c := &Config{
+		Where: map[string]string{
+			"first_name": "like ?",
+			"last_name":  "like ?",
+			"age":        "> ?",
+			"status":     "= ?",
+		},
+	}
+	w, wa, err := where(c,
+		&Query{
+			WhereArgs: map[string]interface{}{
+				"age": 30,
+			},
+			Search: "augustus",
+		})
+	assert.NoError(t, err)
+	assert.Equal(t, "age > ? AND (first_name like ? OR last_name like ?)", w)
+	assert.Equal(t, []interface{}{30, "augustus", "augustus"}, wa)
+
+	// Don't set any AND param.
+	w, wa, err = where(c,
+		&Query{
+			Search: "augustus",
+		})
+	assert.NoError(t, err)
+	assert.Equal(t, "first_name like ? OR last_name like ?", w)
+	assert.Equal(t, []interface{}{"augustus", "augustus"}, wa)
+
+	// Pin a LIKE element down.
+	w, wa, err = where(c,
+		&Query{
+			WhereArgs: map[string]interface{}{
+				"age":        22,
+				"first_name": "Bob",
+			},
+			Search: "augustus",
+		})
+	assert.NoError(t, err)
+	assert.Equal(t, "age > ? AND first_name like ? AND (first_name like ? OR last_name like ?)", w)
+	assert.Equal(t, []interface{}{22, "Bob", "augustus", "augustus"}, wa)
+
+	// Disallows search term
+	c.DisallowSearchTerm = true
+	_, _, err = where(c, &Query{Search: "augustus"})
+	assert.Error(t, err)
+	assert.Equal(t, "search term is disallowed by config", err.Error())
+}
+
 func TestSimple(t *testing.T) {
 	db, f := setup(t)
 	defer f()
@@ -431,6 +480,31 @@ func TestSelectWhereOrderBy(t *testing.T) {
 	})
 }
 
+func TestSearchAndWhere(t *testing.T) {
+	db, f := setup(t)
+	defer f()
+
+	c := Config{
+		DefaultPageSize: 10,
+		Where:           map[string]string{"iq": "> ?", "name": "like ?", "age": "> 0"},
+		OrderableCols:   []string{"iq"},
+	}
+	q := Query{
+		Page:      1,
+		WhereArgs: map[string]interface{}{"iq": 80},
+		OrderBy:   []string{"iq desc"},
+		Search:    "%h%",
+	}
+
+	testPagination(t, db, c, q, [][]dbModel{
+		{
+			{ID: 4, Name: "Meh", Age: 77, IQ: 120},
+			{ID: 5, Name: "Blah", Age: 3, IQ: 100},
+		},
+	})
+
+}
+
 func TestFilterFunc(t *testing.T) {
 	db, f := setup(t)
 	defer f()
@@ -513,6 +587,41 @@ func TestBadOrderBy(t *testing.T) {
 	var results []dbModel
 	_, err := Do(db, c, q, &results)
 	assert.Error(t, err)
+}
+
+func TestPatchLikeQuery(t *testing.T) {
+	c := Config{
+		Where: map[string]string{"name": "like ?", "id": "= ?"},
+	}
+	q := Query{
+		WhereArgs: map[string]interface{}{"name": "bob", "id": 38, "bogus": "blah"},
+		Search:    "yodda",
+	}
+	PatchLikeQuery(&c, &q, true, false)
+	assert.Equal(t, 3, len(q.WhereArgs))          // No field was added or removed.
+	assert.Equal(t, "%bob", q.WhereArgs["name"])  // Name was patched.
+	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
+	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+	assert.Equal(t, "%yodda", q.Search)           // Search is always patched.
+
+	q = Query{
+		WhereArgs: map[string]interface{}{"name": "bob", "id": 38, "bogus": "blah"},
+		Search:    "yodda",
+	}
+	PatchLikeQuery(&c, &q, false, true)
+	assert.Equal(t, 3, len(q.WhereArgs))          // No field was added or removed.
+	assert.Equal(t, "bob%", q.WhereArgs["name"])  // Name was patched.
+	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
+	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+	assert.Equal(t, "yodda%", q.Search)           // Search is always patched.
+
+	// Calling it again does not add extra "%"s.
+	PatchLikeQuery(&c, &q, true, true)
+	assert.Equal(t, 3, len(q.WhereArgs))          // No field was added or removed.
+	assert.Equal(t, "bob%", q.WhereArgs["name"])  // Name was patched.
+	assert.Equal(t, "blah", q.WhereArgs["bogus"]) // Not patched (does not match).
+	assert.Equal(t, 38, q.WhereArgs["id"])        // Not patched (not string).
+	assert.Equal(t, "yodda%", q.Search)           // Search is always patched.
 }
 
 func testPagination(t *testing.T, db *gorm.DB, c Config, q Query, resultsPerPage [][]dbModel) {
