@@ -45,9 +45,11 @@ func TestPopulateAlternateForm(t *testing.T) {
 	type req struct {
 		Page     uint64
 		PageSize uint32
-		ZZZ      int16 `clause:"where, id"`
-		XXX      *uint `clause:"where,age"`
-		Height   int8  `clause:"where"`
+		ZZZ      int16  `clause:"where, id"`
+		XXX      *uint  `clause:"where,age"`
+		Height   int8   `clause:"where"`
+		UserID   int64  `form:"userID" clause:"where"`              // use 'form' tag instead of snake_case of field.
+		UserName string `form:"user_name" clause:"where,user.name"` // username wins
 		Select   []string
 		OrderBy  string
 		Search   string
@@ -58,6 +60,8 @@ func TestPopulateAlternateForm(t *testing.T) {
 		PageSize: 25,
 		ZZZ:      99,
 		XXX:      &i,
+		UserID:   17,
+		UserName: "Alice99",
 		// Not including field 'Height' will also not include it in the final map.
 		Select:  []string{"one", "two", "three"},
 		OrderBy: "order-me",
@@ -68,7 +72,7 @@ func TestPopulateAlternateForm(t *testing.T) {
 	assert.Equal(t, uint32(79), q.Page)
 	assert.Equal(t, uint16(25), q.PageSize)
 	x := uint(69)
-	if want, got := map[string]interface{}{"age": &x, "id": int16(99)}, q.WhereArgs; !reflect.DeepEqual(want, got) {
+	if want, got := map[string]interface{}{"age": &x, "id": int16(99), "userID": int64(17), "user.name": "Alice99"}, q.WhereArgs; !reflect.DeepEqual(want, got) {
 		t.Fatalf("Where maps do not match, want = %v got = %v", want, got)
 	}
 	assert.Equal(t, []string{"one", "two", "three"}, q.Select)

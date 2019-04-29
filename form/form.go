@@ -19,8 +19,13 @@ import (
 // converting them to their appropriate types if they fit. Then it looks for
 // annotations "clause" which can be "where" followed or not by an alternate
 // field name (if none is given the snake case of the field is used) and
-// populates the WhereArgs map. If it doesn't find what it's looking for, it
-// does not change Query at all. See tests for examples.
+// populates the WhereArgs map. Alternatively, if 'clause:"where" does not
+// contain and alternate name, but there's an annotation tag "form", it uses the
+// value of that tag as the alternate name. Tag "form" is used by Gin to process
+// HTTP requests, so we re-use that to make things simpler. If both form and
+// where with a field name are present, the latter wins. If ToQuery doesn't find
+// what it's looking for, it does not change Query at all. See tests for
+// examples.
 func ToQuery(req interface{}, q *paginate.Query) {
 	typ := reflect.TypeOf(req).Elem()
 	val := reflect.ValueOf(req).Elem()
@@ -54,6 +59,8 @@ func ToQuery(req interface{}, q *paginate.Query) {
 		var argName string
 		if len(fullClause) == 2 {
 			argName = strings.TrimSpace(fullClause[1])
+		} else if arg := typeField.Tag.Get("form"); arg != "" {
+			argName = arg
 		} else {
 			argName = snakeCase(typeField.Name)
 		}
