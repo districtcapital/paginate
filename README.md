@@ -3,6 +3,10 @@
 [![Build Status](https://travis-ci.com/districtcapital/paginate.svg?branch=master)](https://travis-ci.com/districtcapital/paginate)
 [![Coverage Status](https://coveralls.io/repos/github/districtcapital/paginate/badge.svg?branch=master)](https://coveralls.io/github/districtcapital/paginate?branch=master)
 
+## This version is no longer maintained by the author here
+
+Please visit the forked version which is actively maintained by the author: [https://github.com/edpin/paginate](https://github.com/edpin/paginate)
+
 ## Install
 
 `go get -u github.com/districtcapital/paginate`
